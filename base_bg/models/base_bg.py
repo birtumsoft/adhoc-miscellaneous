@@ -1,8 +1,12 @@
-import logging
+##############################################################################
+# For copyright and license notices, see __manifest__.py file in module root
+# directory
+##############################################################################
+
+import json
+from typing import Any
 
 from odoo import _, api, models
-
-_logger = logging.getLogger(__name__)
 
 
 class BaseBg(models.AbstractModel):
@@ -17,18 +21,22 @@ class BaseBg(models.AbstractModel):
         :param method: The method name to execute
 
         Special kwargs:
+            :param priority: Job priority (default: 10)
             :param max_retries: Maximum retry attempts (default: 3)
 
         :return: A display notification
         """
+        priority = kwargs.pop("priority", 10)
         max_retries = kwargs.pop("max_retries", 3)
+        context = {k: v for k, v in self.env.context.items() if self.is_serializable(v)}
         name = kwargs.pop("name", f"{self._name}.{method}")
         job_vals = {
             "name": name,
             "model": self._name,
             "method": method,
+            "priority": priority,
             "max_retries": max_retries,
-            "context_json": dict(self.env.context),
+            "context_json": context,
         }
 
         # Handle recordset: store IDs for later reconstruction
@@ -61,3 +69,17 @@ class BaseBg(models.AbstractModel):
         crons = self.env["ir.cron"].search([("code", "ilike", code)])
         for cron in crons:
             cron._trigger()
+
+    @api.model
+    def is_serializable(self, value: Any) -> bool:
+        """
+        Checks if a value is JSON serializable.
+
+        :param value: The value to check
+        :return: True if serializable, False otherwise
+        """
+        try:
+            json.dumps(value)
+            return True
+        except Exception:
+            return False
