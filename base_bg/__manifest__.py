@@ -1,6 +1,6 @@
 ##############################################################################
 #
-#    Copyright (C) 2016  ADHOC SA  (http://www.adhoc.com.ar)
+#    Copyright (C) YEAR  ADHOC SA  (http://www.adhoc.com.ar)
 #    All Rights Reserved.
 #
 #    This program is free software: you can redistribute it and/or modify
@@ -18,12 +18,26 @@
 #
 ##############################################################################
 {
-    "name": "Print Node Printing",
-    "version": "18.0.1.1.0",
-    "category": "Generic Modules/Base",
-    "author": "ADHOC SA, Odoo Community Association (OCA)",
+    "name": "Base Background Jobs",
+    "version": "18.0.1.0.1",
+    "category": "Technical",
+    "author": "ADHOC SA",
+    "website": "https://www.adhoc.com.ar",
     "license": "AGPL-3",
-    "depends": ["base_report_to_printer"],
-    "data": ["wizards/res_config_settings_view.xml"],
+    "summary": "Background job processing system for long-running operations",
+    "depends": [
+        "base",
+        "mail",
+    ],
+    "data": [
+        "security/ir.model.access.csv",
+        "views/bg_job_views.xml",
+        "data/ir_cron_data.xml",
+    ],
+    "demo": [
+        "demo/bg_job_demo.xml",
+    ],
     "installable": True,
+    "auto_install": False,
+    "application": False,
 }
