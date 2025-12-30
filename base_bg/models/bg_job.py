@@ -153,6 +153,7 @@ class BgJob(models.Model):
             }
         )
         self.env.cr.commit()  # pylint: disable=invalid-commit
+
         try:
             context = self.context_json or {}
             context.update({"bg_job": True})
@@ -164,6 +165,7 @@ class BgJob(models.Model):
             record_ids = kwargs.pop("_record_ids", None)
             records = model.browse(record_ids).with_context(**context).with_user(self.create_uid)
             result = getattr(records, self.method)(*args, **kwargs)
+
             self.write(
                 {
                     "state": "done",
@@ -172,11 +174,13 @@ class BgJob(models.Model):
             )
             if result:
                 self._notify_user(result)
+                self.env.cr.commit()  # pylint: disable=invalid-commit
         except Exception as e:
+            self.env.cr.rollback()  # pylint: disable=invalid-commit
             self._handle_job_error(e)
             raise
 
-    def _handle_job_error(self, error: Exception):
+    def _handle_job_error(self, error: Exception | str):
         """
         Handle job execution error
 
@@ -236,7 +240,7 @@ class BgJob(models.Model):
             return
 
         code = "_cron_run_enqueued_jobs("
-        cron_ids = self.env["ir.cron"].search([], order="id").filtered(lambda c: c.code and code in c.code).ids
+        cron_ids = self.env["ir.cron"].search([("code", "ilike", code)], order="id").ids
         index, total = cron_ids.index(cron_id), len(cron_ids)
         jobs = self.search([("state", "=", "enqueued")]).filtered(lambda r: r.id % total == index)[:limit]
         self.env["ir.cron"]._commit_progress(remaining=len(jobs))
@@ -261,6 +265,7 @@ class BgJob(models.Model):
             ]
         )
         for job in jobs:
-            job.write({"state": "failed", "error_message": _("Job timed out")})
-            message = _("Job %s timed out") % job.name
-            job._notify_user(message)
+            job._handle_job_error(_("Job timed out"))
+            if job.state == "failed":
+                message = _("Job %s timed out") % job.name
+                job._notify_user(message)
