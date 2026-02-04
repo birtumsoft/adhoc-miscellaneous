@@ -5,9 +5,11 @@
 import logging
 from datetime import timedelta
 
+import psycopg2
 from markupsafe import Markup
 from odoo import _, api, fields, models, tools
 from odoo.exceptions import UserError
+from odoo.fields import Domain
 
 _logger = logging.getLogger(__name__)
 
@@ -20,11 +22,12 @@ class BgJob(models.Model):
     name = fields.Char(
         string="Job Name",
         required=True,
-        help="Human readable job name",
+        readonly=True,
     )
     state = fields.Selection(
         [
             ("enqueued", "Enqueued"),
+            ("waiting", "Waiting For Previous Job"),
             ("running", "Running"),
             ("done", "Done"),
             ("failed", "Failed"),
@@ -32,34 +35,43 @@ class BgJob(models.Model):
         ],
         default="enqueued",
         required=True,
+        help="Current state of the job",
     )
     model = fields.Char(
         required=True,
+        readonly=True,
         help="The model name on which the job method will be executed",
     )
     method = fields.Char(
         required=True,
+        readonly=True,
         help="The method name to be executed",
     )
     args_json = fields.Json(
+        readonly=True,
         help="Positional arguments for the method call, serialized as JSON",
     )
     kwargs_json = fields.Json(
+        readonly=True,
         help="Keyword arguments for the method call, serialized as JSON",
     )
     context_json = fields.Json(
+        readonly=True,
         help="Context to be used when executing the job, serialized as JSON",
     )
     priority = fields.Integer(
         default=10,
+        readonly=True,
         help="Job priority (lower number means higher priority)",
     )
     max_retries = fields.Integer(
         default=3,
+        readonly=True,
         help="Maximum number of retry attempts",
     )
     retry_count = fields.Integer(
         default=0,
+        readonly=True,
         help="Current number of retry attempts",
     )
     start_time = fields.Datetime(
@@ -80,7 +92,19 @@ class BgJob(models.Model):
         help="Job execution duration in seconds",
     )
     error_message = fields.Text(
+        readonly=True,
         help="Error message from the last failed execution",
+    )
+    batch_key = fields.Char(
+        required=True,
+        readonly=True,
+        index=True,
+        help="Identifier for related jobs in a batch",
+    )
+    next_job_id = fields.Many2one(
+        "bg.job",
+        readonly=True,
+        help="Next job in the batch sequence",
     )
 
     @api.depends("start_time", "end_time")
@@ -99,12 +123,8 @@ class BgJob(models.Model):
         self.ensure_one()
         if self.state != "enqueued":
             raise UserError(_("Only enqueued jobs can be canceled"))
-        self.write(
-            {
-                "state": "canceled",
-                "cancel_time": fields.Datetime.now(),
-            }
-        )
+
+        (self | self._get_next_jobs()).cancel()
 
     def action_retry(self):
         """
@@ -113,13 +133,9 @@ class BgJob(models.Model):
         self.ensure_one()
         if self.state != "failed":
             raise UserError(_("Only failed jobs can be retried"))
-        self.write(
-            {
-                "state": "enqueued",
-                "retry_count": 0,
-                "error_message": False,
-            }
-        )
+
+        self.enqueue(retry=True)
+        self._get_next_jobs().wait()
 
     def action_open_records(self) -> dict:
         """
@@ -138,47 +154,106 @@ class BgJob(models.Model):
             "domain": [("id", "in", records.ids)],
         }
 
+    def action_open_batch_jobs(self) -> dict:
+        """
+        Action to open all jobs in the same batch
+        """
+        self.ensure_one()
+        return {
+            "name": _("Batch Jobs: %s", self.batch_key[:8]),
+            "type": "ir.actions.act_window",
+            "res_model": "bg.job",
+            "view_mode": "list,form",
+            "domain": [("batch_key", "=", self.batch_key)],
+        }
+
     def run(self):
         """
         Executes the job
         """
         self.ensure_one()
-        if self.state != "enqueued":
-            raise UserError(_("Only enqueued jobs can be executed"))
+        if self.state != "running":
+            raise UserError(_("Only running jobs can be executed"))
 
-        self.write(
-            {
-                "state": "running",
-                "start_time": fields.Datetime.now(),
-            }
-        )
         self.env.cr.commit()  # pylint: disable=invalid-commit
-
         try:
-            context = self.context_json or {}
-            context.update({"bg_job": True})
+            context = dict(self.context_json or {})
+            context.update({"bg_job": True, "bg_job_id": self.id})
 
             # Extract record IDs if present in kwargs or args
             model = self.env[self.model]
-            args = self.args_json or []
-            kwargs = self.kwargs_json or {}
-            record_ids = kwargs.pop("_record_ids", None)
+            args = list(self.args_json or [])
+            kwargs = dict(self.kwargs_json or {})
+            record_ids = kwargs.pop("_record_ids", [])
             records = model.browse(record_ids).with_context(**context).with_user(self.create_uid)
-            result = getattr(records, self.method)(*args, **kwargs)
 
-            self.write(
-                {
-                    "state": "done",
-                    "end_time": fields.Datetime.now(),
-                }
-            )
+            # Execute the method and capture the result
+            result = getattr(records, self.method)(*args, **kwargs)
+            self.finish()
             if result:
                 self._notify_user(result)
-                self.env.cr.commit()  # pylint: disable=invalid-commit
+
+            self.env.cr.commit()  # pylint: disable=invalid-commit
         except Exception as e:
             self.env.cr.rollback()  # pylint: disable=invalid-commit
             self._handle_job_error(e)
-            raise
+            self.env.cr.commit()  # pylint: disable=invalid-commit
+
+    def enqueue(self, retry: bool = False):
+        """Mark the job as enqueued."""
+        data: dict[str, str | int | bool] = {
+            "state": "enqueued",
+        }
+        if retry:
+            data.update(
+                {
+                    "retry_count": 0,
+                    "error_message": False,
+                }
+            )
+        self.write(data)
+
+    def finish(self):
+        """
+        Mark the job as done and set the end time.
+        Also enqueue the next job in the batch if it exists.
+        """
+        self.write(
+            {
+                "state": "done",
+                "end_time": fields.Datetime.now(),
+            }
+        )
+        self.filtered("next_job_id").mapped("next_job_id").enqueue()
+        self.env["base.bg"].sudo()._trigger_crons()
+
+    def wait(self):
+        """Mark the job as waiting for the previous job to complete."""
+        self.write(
+            {
+                "state": "waiting",
+            }
+        )
+
+    def fail(self, error_message: str):
+        """Mark the job as failed with an error message."""
+        self.write(
+            {
+                "state": "failed",
+                "end_time": fields.Datetime.now(),
+                "error_message": error_message,
+            }
+        )
+
+    def cancel(self, message: str | None = None):
+        """Cancel the jobs received."""
+        self.write(
+            {
+                "state": "canceled",
+                "cancel_time": fields.Datetime.now(),
+                "error_message": message,
+            }
+        )
 
     def _handle_job_error(self, error: Exception | str):
         """
@@ -189,21 +264,12 @@ class BgJob(models.Model):
         error_msg = str(error)
         self.retry_count += 1
         if self.retry_count < self.max_retries:
-            self.write(
-                {
-                    "state": "enqueued",
-                }
-            )
+            self.enqueue()
             _logger.warning("Job %s failed, scheduling retry #%d: %s", self.name, self.retry_count, error_msg)
         else:
             # Max retries reached, mark as failed
-            self.write(
-                {
-                    "state": "failed",
-                    "end_time": fields.Datetime.now(),
-                    "error_message": error_msg,
-                }
-            )
+            self.fail(error_msg)
+            self._get_next_jobs().cancel(message=_("Previous job in batch failed"))
             _logger.error("Job %s failed permanently: %s", self.name, error_msg)
 
     def _notify_user(self, result: str):
@@ -213,7 +279,10 @@ class BgJob(models.Model):
         :param result: The result of the job execution
         """
         channel = (
-            self.env["discuss.channel"].with_user(self.create_uid)._get_or_create_chat([self.create_uid.partner_id.id])
+            self.env["discuss.channel"]
+            .sudo()
+            .with_user(self.create_uid)
+            ._get_or_create_chat([self.create_uid.partner_id.id])
         )
         partner_root_id = self.env.ref("base.partner_root").id
         channel.message_post(
@@ -223,35 +292,73 @@ class BgJob(models.Model):
             subtype_xmlid="mail.mt_comment",
         )
 
+    def _get_next_jobs(self) -> "BgJob":
+        """
+        Get the next jobs in the same batch.
+
+        :return: Recordset of next jobs in the batch
+        """
+        self.ensure_one()
+        current_job = self
+        jobs = self.env["bg.job"]
+        while current_job.next_job_id:
+            jobs |= current_job.next_job_id
+            current_job = current_job.next_job_id
+        return jobs
+
     @api.model
-    def _cron_run_enqueued_jobs(self, limit: int = 5):
+    def _get_next_job(self) -> "BgJob":
         """
-        Execute enqueued background jobs.
+        Retrieve the next enqueued job using optimistic locking.
+        Uses SELECT FOR UPDATE SKIP LOCKED to avoid conflicts with other cron jobs.
+        Not only grabs the next job, but also marks it as running.
 
-        :param limit: Maximum number of jobs to process (default: 5)
+        :return: The next BgJob record to process, or an empty recordset if none available
         """
-        cron_id = (
-            self.env.context.get("cron_id", False)
-            or self.env["ir.cron.progress"].browse(self.env.context.get("ir_cron_progress_id")).cron_id.id
+        self.env.cr.execute(
+            """
+            WITH candidate AS (
+                SELECT id
+                FROM bg_job
+                WHERE state = 'enqueued'
+                ORDER BY priority, create_date, id
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            UPDATE bg_job j
+            SET state = 'running',
+                start_time = NOW()
+            FROM candidate
+            WHERE j.id = candidate.id
+            RETURNING j.id;
+            """
         )
+        row = self.env.cr.fetchone()
+        return self.browse(row[0]) if row else self.env["bg.job"]
 
-        if not cron_id:
-            _logger.warning("No cron_id found in context, skipping _cron_run_enqueued_jobs")
+    @api.model
+    def _cron_run_enqueued_jobs(self):
+        """
+        Execute one enqueued background job using optimistic locking.
+
+        Uses SELECT FOR UPDATE SKIP LOCKED to allow multiple crons to safely
+        pick up jobs without conflicts. Each cron processes one available job
+        that isn't locked by other crons, naturally balancing the load.
+        """
+        try:
+            job = self._get_next_job()
+        except psycopg2.errors.SerializationFailure:
+            self.env.cr.rollback()
+            self.env["base.bg"].sudo()._trigger_crons()
             return
 
-        code = "_cron_run_enqueued_jobs("
-        cron_ids = self.env["ir.cron"].search([("code", "ilike", code)], order="id").ids
-        index, total = cron_ids.index(cron_id), len(cron_ids)
-        jobs = self.search([("state", "=", "enqueued")]).filtered(lambda r: r.id % total == index)[:limit]
-        self.env["ir.cron"]._commit_progress(remaining=len(jobs))
-        for job in jobs:
-            try:
-                job.run()
-                self.env["ir.cron"]._commit_progress(processed=1)
-            except Exception as e:
-                self.env.cr.rollback()
-                _logger.exception("Error executing job %s: %s", job.id, e)
-                continue
+        if not job:
+            return
+
+        job.run()
+        # Trigger cron again if there are more jobs to process
+        if self.search_count(Domain("state", "=", "enqueued")):
+            self.env["base.bg"].sudo()._trigger_crons()
 
     @api.model
     def _cron_check_running_jobs(self):
@@ -267,5 +374,5 @@ class BgJob(models.Model):
         for job in jobs:
             job._handle_job_error(_("Job timed out"))
             if job.state == "failed":
-                message = _("Job %s timed out") % job.name
+                message = _("Job %s timed out") % job._get_html_link(title=job.name)
                 job._notify_user(message)
