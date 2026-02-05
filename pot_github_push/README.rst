@@ -11,43 +11,37 @@
    :alt: License: AGPL-3
 
 =============
-Report Copies
+POT Generator
 =============
 
-* Add the posibility to print more than 1 copy for the qweb reports.
+Automatic POT (Portable Object Template) file generator for Odoo modules with GitHub API integration.
 
-Installation
-============
+Features
+========
 
-To install this module, you need to:
+**POT Generation**
+  - Generate .pot files using Odoo's native ``trans_export``
+  - Direct GitHub API push (no local Git required)
+  - Smart content comparison (ignores timestamp changes)
 
-#. Just install
+**Integration**
+  - Runbot compatible execution
+  - Auto-execution on module installation
+  - Environment variable configuration
 
 Configuration
 =============
 
-To configure this module, you need to:
+Set environment variables for GitHub integration::
 
-#. Don't need any configuration
-
-Usage
-=====
-
-To use this module, you need to:
-
-#. Just use it.
+    export GITHUB_TOKEN="your_github_token"
+    export GITHUB_REPO_OWNER="your_organization"
+    export GITHUB_REPO_NAME="your_repository"
+    export GITHUB_BRANCH="your_branch"
 
 .. image:: https://odoo-community.org/website/image/ir.attachment/5784_f2813bd/datas
    :alt: Try me on Runbot
    :target: http://runbot.adhoc.com.ar/
-
-Bug Tracker
-===========
-
-Bugs are tracked on `GitHub Issues
-<https://github.com/ingadhoc/miscellaneous/issues>`_. In case of trouble, please
-check there if your issue has already been reported. If you spotted it first,
-help us smashing it by providing a detailed and welcomed feedback.
 
 Credits
 =======
