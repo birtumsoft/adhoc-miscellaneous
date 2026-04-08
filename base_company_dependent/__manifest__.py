@@ -1,6 +1,6 @@
 ##############################################################################
 #
-#    Copyright (C) 2016  ADHOC SA  (http://www.adhoc.com.ar)
+#    Copyright (C) 2024  ADHOC SA  (http://www.adhoc.com.ar)
 #    All Rights Reserved.
 #
 #    This program is free software: you can redistribute it and/or modify
@@ -18,12 +18,26 @@
 #
 ##############################################################################
 {
-    "name": "Print Node Printing",
-    "version": "18.0.1.1.0",
-    "category": "Generic Modules/Base",
-    "author": "ADHOC SA, Odoo Community Association (OCA)",
+    "name": "Base Company Dependent UX",
+    "version": "19.0.1.1.0",
+    "category": "Base",
+    "sequence": 14,
+    "summary": (
+        "Mejora UX de campos company_dependent: indicador visual y asistente "
+        "multicompañía para gestionar valores por compañía sin cambiar de sesión."
+    ),
+    "author": "ADHOC SA",
+    "website": "www.adhoc.com.ar",
     "license": "AGPL-3",
-    "depends": ["base_report_to_printer"],
-    "data": ["wizards/res_config_settings_view.xml"],
-    "installable": False,
+    "images": [],
+    "depends": ["base", "web"],
+    "assets": {
+        "web.assets_backend": [
+            "base_company_dependent/static/src/**/*",
+        ],
+    },
+    "data": [],
+    "installable": True,
+    "auto_install": False,
+    "application": False,
 }

@@ -1,6 +1,6 @@
 ##############################################################################
 #
-#    Copyright (C) 2026  ADHOC SA  (http://www.adhoc.com.ar)
+#    Copyright (C) 2024  ADHOC SA  (http://www.adhoc.com.ar)
 #    All Rights Reserved.
 #
 #    This program is free software: you can redistribute it and/or modify
@@ -17,25 +17,22 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 ##############################################################################
-{
-    "name": "Export Background",
-    "version": "19.0.1.1.0",
-    "category": "Technical",
-    "author": "ADHOC SA",
-    "website": "https://www.adhoc.com.ar",
-    "license": "AGPL-3",
-    "summary": "Export large datasets in background to avoid timeouts",
-    "depends": [
-        "base_bg",
-        "web",
-    ],
-    "data": [],
-    "assets": {
-        "web.assets_backend": [
-            "export_bg/static/src/views/list_controller.js",
-        ],
-    },
-    "installable": True,
-    "auto_install": False,
-    "application": False,
-}
+from odoo import api, models
+
+
+class Base(models.AbstractModel):
+    """Expone el atributo ``company_dependent`` al cliente web.
+
+    ``_get_view_field_attributes`` controla qué metadatos de campo se incluyen
+    en la respuesta del ORM al cargar una vista.  ``company_dependent`` no está
+    en la lista base de Odoo 19, por lo que el frontend nunca lo recibe y no
+    puede activar el widget multicompañía.
+    """
+
+    _inherit = "base"
+
+    @api.model
+    def _get_view_field_attributes(self):
+        keys = super()._get_view_field_attributes()
+        keys.append("company_dependent")
+        return keys

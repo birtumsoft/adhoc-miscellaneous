@@ -1,6 +1,6 @@
 ##############################################################################
 #
-#    Copyright (C) 2026  ADHOC SA  (http://www.adhoc.com.ar)
+#    Copyright (C) 2016  ADHOC SA  (http://www.adhoc.com.ar)
 #    All Rights Reserved.
 #
 #    This program is free software: you can redistribute it and/or modify
@@ -18,24 +18,16 @@
 #
 ##############################################################################
 {
-    "name": "Export Background",
-    "version": "19.0.1.1.0",
-    "category": "Technical",
+    "name": "IOT Print Node Printing",
+    "version": "19.0.0.1.0",
+    "category": "Generic Modules/Base",
     "author": "ADHOC SA",
-    "website": "https://www.adhoc.com.ar",
     "license": "AGPL-3",
-    "summary": "Export large datasets in background to avoid timeouts",
-    "depends": [
-        "base_bg",
-        "web",
+    "depends": ["iot"],
+    "data": [
+        "security/ir.model.access.csv",
+        "views/iot_views.xml",
+        "wizard/add_iot_printnode_views.xml",
     ],
-    "data": [],
-    "assets": {
-        "web.assets_backend": [
-            "export_bg/static/src/views/list_controller.js",
-        ],
-    },
     "installable": True,
-    "auto_install": False,
-    "application": False,
 }
