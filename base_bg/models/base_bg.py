@@ -79,7 +79,7 @@ class BaseBg(models.AbstractModel):
                 prev_job.next_job_id = job.id
             prev_job = job
 
-        self.sudo()._trigger_crons()
+        self.env.cr.postcommit.add(self.sudo()._trigger_crons)
         title = _("Processes sent to background successfully")
         message = _("You will be notified when they are done.")
         return (
@@ -109,14 +109,17 @@ class BaseBg(models.AbstractModel):
         """
         return self.bg_enqueue_records(self, method, threshold, *args, **kwargs)
 
-    def _trigger_crons(self):
+    def _trigger_crons(self, at=None):
         """
-        Trigger cron jobs to process enqueued background jobs
+        Trigger the background-job runner cron(s).
+
+        :param at: when the runner should fire (default now). Pass a future time to
+            schedule a wake-up for a backing-off job.
         """
         code = "_cron_run_enqueued_jobs("
         crons = self.env["ir.cron"].search([("code", "ilike", code)])
         for cron in crons:
-            cron._trigger()
+            cron._trigger(at=at)
 
     @api.model
     def is_serializable(self, value: Any) -> bool:

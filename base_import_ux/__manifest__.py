@@ -1,6 +1,6 @@
 ##############################################################################
 #
-#    Copyright (C) 2024  ADHOC SA  (http://www.adhoc.com.ar)
+#    Copyright (C) 2026  ADHOC SA  (http://www.adhoc.com.ar)
 #    All Rights Reserved.
 #
 #    This program is free software: you can redistribute it and/or modify
@@ -17,22 +17,32 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 ##############################################################################
-from odoo import api, models
-
-
-class Base(models.AbstractModel):
-    """Expone el atributo ``company_dependent`` al cliente web.
-
-    ``_get_view_field_attributes`` controla qué metadatos de campo se incluyen
-    en la respuesta del ORM al cargar una vista.  ``company_dependent`` no está
-    en la lista base de Odoo 19, por lo que el frontend nunca lo recibe y no
-    puede activar el widget multicompañía.
-    """
-
-    _inherit = "base"
-
-    @api.model
-    def _get_view_field_attributes(self):
-        keys = super()._get_view_field_attributes()
-        keys.append("company_dependent")
-        return keys
+{
+    "name": "First Steps",
+    "version": "19.0.1.2.0",
+    "category": "Tools",
+    "sequence": 14,
+    "summary": "Centralizes the onboarding initial imports in a single panel "
+    "available from General Settings, showing each shortcut depending on the "
+    "installed modules; and makes import error messages friendlier",
+    "author": "ADHOC SA",
+    "website": "www.adhoc.com.ar",
+    "license": "AGPL-3",
+    "images": [],
+    "depends": [
+        "base_setup",
+        "base_import",
+    ],
+    "data": [
+        "views/first_steps_actions.xml",
+        "views/res_config_settings_views.xml",
+    ],
+    "assets": {
+        "web.assets_backend": [
+            "base_import_ux/static/src/**/*",
+        ],
+    },
+    "installable": True,
+    "auto_install": True,
+    "application": False,
+}
